@@ -32,12 +32,12 @@
 #elif defined(__AVR_ATmega32U4__)
   #define RF69_IRQ_PIN          3
   #define RF69_IRQ_NUM          0
-#else 
+#else
   #define RF69_IRQ_PIN          2
-  #define RF69_IRQ_NUM          0  
+  #define RF69_IRQ_NUM          0
 #endif
 
-#define CSMA_LIMIT          -90 // upper RX signal sensitivity threshold in dBm for carrier sense access
+#define CSMA_LIMIT          -85 // upper RX signal sensitivity threshold in dBm for carrier sense access
 #define RF69_MODE_SLEEP       0 // XTAL OFF
 #define RF69_MODE_STANDBY     1 // XTAL ON
 #define RF69_MODE_SYNTH       2 // PLL ON
@@ -51,14 +51,25 @@
 #define COURSE_TEMP_COEF    -90 // puts the temperature reading in the ballpark, user can fine tune the returned value
 #define RF69_FSTEP 61.03515625 	// == FXOSC/2^19 = 32mhz/2^19 (p13 in DS)
 
-#define RESYNC_THRESHOLD 50       // max. number of lost packets from a station before rediscovery
+#define RESYNC_THRESHOLD 30       // max. number of lost packets from a station before rediscovery
 #define LATE_PACKET_THRESH 5000   // packet is considered missing after this many micros
 #define POST_RX_WAIT 2000         // RX "settle" delay
 #define MAX_STATIONS 8            // max. stations this code is able to handle
 
-#define DISCOVERY_MINGAP 70000L
-#define DISCOVERY_GUARD  60000L
-#define DISCOVERY_STEP   150000000L
+#define DISCOVERY_MINGAP 70000L       // Not used?
+#define DISCOVERY_GUARD  10000L        // time before expected transmission to switch on receiver
+#define DISCOVERY_STEP   150000000L   // time before moving the discovery channel on - to avoid interference?
+
+#define LED 9               // Moteino has LED on pin 9
+#define LED_INTERVAL 1000   // LED flash duration micros
+
+#define FREQ_CORR 0         // Frequency correction factor for RFM69 = (Required correction Hz) / 61
+                            // E.g. 20kHz = 20000/61 = 328, should use RF_FSTEP, but 61 is close enough
+                            // My Moteino's #1 = -395, #2 = -340
+
+#define DAVIS_INTV_CORR 1   // Used in the formula to calculate the station transmission interval - (41 + id) / 16
+                            // Nominally = 1, but I found my Arduino was measuring longer intervals on the microsec clock for my transmitters
+                            // My Moteino's #1 = 0.9977, #2 = 0.9972
 
 // Station data structure for managing radio reception
 typedef struct __attribute__((packed)) Station {
@@ -86,23 +97,26 @@ class DavisRFM69 {
     static volatile byte CHANNEL;
     static volatile int RSSI;
     static volatile int16_t FEI;
-	static volatile byte band;
+	  static volatile byte band;
 
-	static volatile uint32_t packets;
-	static volatile uint32_t lostPackets;
-	static volatile uint32_t numResyncs;
-	static volatile uint32_t lostStations;
-	static volatile byte stationsFound;
-	static volatile byte curStation;
-	static volatile byte numStations;
+  	static volatile uint32_t packets;
+  	static volatile uint32_t lostPackets;
+  	static volatile uint32_t numResyncs;
+  	static volatile uint32_t lostStations;
+  	static volatile byte stationsFound;
+  	static volatile byte curStation;
+  	static volatile byte numStations;
     static volatile byte hopIndex;
     static volatile byte discChannel;
-	static volatile uint32_t lastDiscStep;
+	  static volatile uint32_t lastDiscStep;
 
-	static PacketFifo fifo;
-	static Station *stations;
+    static volatile bool     ledOn;
+    static volatile uint32_t ledTimer;
 
-    DavisRFM69(byte slaveSelectPin=SPI_CS, byte interruptPin=RF69_IRQ_PIN, bool isRFM69HW=false, byte interruptNum=RF69_IRQ_NUM) {
+  	static PacketFifo fifo;
+  	static Station *stations;
+
+    DavisRFM69(byte slaveSelectPin=SPI_CS, byte interruptPin=RF69_IRQ_PIN, bool isRFM69HW=false, byte interruptNum=RF69_IRQ_NUM, bool rxLED=false, bool txLED=false) {
       _slaveSelectPin = slaveSelectPin;
       _interruptPin = interruptPin;
       _interruptNum = interruptNum;
@@ -110,6 +124,8 @@ class DavisRFM69 {
       _packetReceived = false;
       _powerLevel = 31;
       _isRFM69HW = isRFM69HW;
+      _rxLED = rxLED;
+      _txLED = txLED;
     }
 
     void setChannel(byte channel);
@@ -118,7 +134,7 @@ class DavisRFM69 {
 
     void initialize(byte freqBand);
     bool canSend();
-    void send(const void* buffer);
+    void send(const void* buffer, byte channel=255);
     bool receiveDone();
     void setFrequency(uint32_t FRF);
     void setCS(byte newSPISlaveSelect);
@@ -134,21 +150,21 @@ class DavisRFM69 {
     void writeReg(byte addr, byte val);
     void readAllRegs();
     void setTxMode(bool txMode);
-	void setBand(byte newBand);
-	void setBandwidth(byte bw);
-	byte getBandTabLength();
+  	void setBand(byte newBand);
+  	void setBandwidth(byte bw);
+  	byte getBandTabLength();
 
-	byte nextChannel(byte channel);
-	int findStation(byte id);
-	void handleRadioInt();
-	void initStations();
-	void nextStation();
+  	byte nextChannel(byte channel);
+  	int findStation(byte id);
+  	void handleRadioInt();
+  	void initStations();
+  	void nextStation();
 
-	static void handleTimerInt();
-	static void setStations(Station *_stations, byte n);
-	void stopReceiver();
-	void setRssiThreshold(int rssiThreshold);
-	void setRssiThresholdRaw(int rssiThresholdRaw);
+  	static void handleTimerInt();
+  	static void setStations(Station *_stations, byte n);
+  	void stopReceiver();
+  	void setRssiThreshold(int rssiThreshold);
+  	void setRssiThresholdRaw(int rssiThresholdRaw);
 
   protected:
     static volatile bool txMode;
@@ -166,12 +182,15 @@ class DavisRFM69 {
     byte _interruptNum;
     byte _powerLevel;
     bool _isRFM69HW;
+    bool _rxLED;
+    bool _txLED;
 
     void receiveBegin();
     void setMode(byte mode);
     void setHighPowerRegs(bool onOff);
     void select();
     void unselect();
+    void ledOnOff(bool on);
 };
 
 // FRF_MSB, FRF_MID, and FRF_LSB for the 51 North American, Australian, New Zealander & 5 European channels
@@ -397,7 +416,7 @@ static const uint8_t bandTabLengths[4] = {
 #define STYPE_SOIL        0x7 // Soil Station
 #define STYPE_SOIL_LEAF   0x8 // Soil/Leaf Station
 #define STYPE_SENSORLINK  0x9 // SensorLink Station (not supported for the VP2)
-#define STYPE_OFF         0xA // No station – OFF
+#define STYPE_OFF         0xA // No station ï¿½ OFF
 #define STYPE_VUE         0x10 // pseudo station type for the Vue ISS
                                // since the Vue also has a type of 0x0
 
@@ -410,6 +429,7 @@ static const uint8_t bandTabLengths[4] = {
 #define VP2P_TEMP         0x8 // outside temperature
 #define VP2P_WINDGUST     0x9 // 10-minute wind gust
 #define VP2P_HUMIDITY     0xA // outside humidity
+#define VP2P_UNKNOWN      0xC // who knows!
 #define VP2P_RAIN         0xE // rain bucket tips counter
 #define VP2P_SOIL_LEAF    0xF // soil/leaf station
 

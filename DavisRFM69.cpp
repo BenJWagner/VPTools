@@ -37,6 +37,8 @@ volatile byte DavisRFM69::curStation = 0;
 volatile byte DavisRFM69::numStations = 0;
 volatile byte DavisRFM69::discChannel = 0;
 volatile uint32_t DavisRFM69::lastDiscStep;
+volatile bool     DavisRFM69::ledOn = false;
+volatile uint32_t DavisRFM69::ledTimer = 0;
 
 PacketFifo DavisRFM69::fifo;
 Station *DavisRFM69::stations;
@@ -64,7 +66,7 @@ void DavisRFM69::initialize(byte freqBand)
     ///* 0x13 */ { REG_OCP, RF_OCP_ON | RF_OCP_TRIM_95 }, //over current protection (default is 95mA)
     /* 0x18 */ { REG_LNA, RF_LNA_ZIN_50 | RF_LNA_GAINSELECT_AUTO }, // Not sure which is correct!
     // REG_RXBW 50 kHz fixes console retransmit reception but seems worse for SIM transmitters (to be confirmed with more testing)
-	// Defaulting to narrow BW, since console retransmits are rarely used - use setBandwidth() to change this
+    // Defaulting to narrow BW, since console retransmits are rarely used - use setBandwidth() to change this
     /* 0x19 */ { REG_RXBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_20 | RF_RXBW_EXP_4 }, // Use 25 kHz BW (BitRate < 2 * RxBw)
     /* 0x1A */ { REG_AFCBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_20 | RF_RXBW_EXP_3 }, // Use double the bandwidth during AFC as reception
     /* 0x1B - 0x1D These registers are for OOK.  Not used */
@@ -125,7 +127,7 @@ void DavisRFM69::initialize(byte freqBand)
   initStations();
   lastDiscStep = micros();
 
-  Timer1.initialize(2000); // periodical interrupts every 2 ms for missed packet detection and other checks
+  Timer1.initialize(1000); // periodical interrupts every 1 ms for missed packet detection and other checks
   Timer1.attachInterrupt(DavisRFM69::handleTimerInt, 0);
 }
 
@@ -141,16 +143,58 @@ void DavisRFM69::setStations(Station *_stations, byte n) {
 
 // Handle missed packets. Called from Timer1 ISR every ms
 void DavisRFM69::handleTimerInt() {
-
   uint32_t lastRx = micros();
-  bool readjust = false;
 
+/* ######## THIS DOESN'T WORK RELIABLY WHEN A NEW STATION IS FIRST 'DISCOVERED'
+  // Is the current station 'live'?
+  // AND is the current station about to transmit?
+  // AND is the channel different from current station channel OR we are not in receive mode?
   if (stations[curStation].interval > 0
-	  && stations[curStation].lastRx + stations[curStation].interval - lastRx < DISCOVERY_GUARD
-      && CHANNEL != stations[curStation].channel) {
+      && stations[curStation].lastRx + stations[curStation].interval - lastRx < DISCOVERY_GUARD
+      && (CHANNEL != stations[curStation].channel || _mode != RF69_MODE_RX)) {
+
+    // Then we better start listening for next transmission
     selfPointer->setChannel(stations[curStation].channel);
-	return;
+
+
+  // ELSE are there stations still left to discover?
+  // AND we aren't on the 'discovery' channel OR we are not in receive mode?
+  } else if (stationsFound != numStations
+      && (CHANNEL != discChannel || _mode != RF69_MODE_RX)) {
+
+    // Then start listening for new stations
+    selfPointer->setChannel(discChannel);
+
   }
+*/
+
+/* ######### BUT THIS DOES WORK EVERY TIME A NEW STATION IS FIRST 'DISCOVERED' - WEIRD! */
+  // Is the current station about to transmit?
+  if (stations[curStation].interval > 0
+        && stations[curStation].lastRx + stations[curStation].interval - lastRx < DISCOVERY_GUARD) {
+    // Yes, so we better listen for it
+    // Is the channel same as current station channel?
+    if (CHANNEL != stations[curStation].channel || _mode != RF69_MODE_RX) {
+      // No, channel is not the next expected
+      // Switch to current station channel
+      selfPointer->setChannel(stations[curStation].channel);
+    }
+  } else {
+    // No, we aren't expecting a transmission yet
+
+    // Do we have any stations left to discover?
+    if (stationsFound != numStations) {
+      // Yes, stations need discovering
+      // Is the channel same as the discovery channel?
+      if (CHANNEL != discChannel || _mode != RF69_MODE_RX) {
+        // No, we aren't listening on the discovery channel
+        // Switch to the discovery channel
+        selfPointer->setChannel(discChannel);
+      }
+    }
+  }
+
+
 
   if (lastRx - lastDiscStep > DISCOVERY_STEP) {
     discChannel = selfPointer->nextChannel(discChannel);
@@ -170,25 +214,26 @@ void DavisRFM69::handleTimerInt() {
         stations[i].lostPackets = 0;
         lostStations++;
         stationsFound--;
+        // set the discovery channel a couple ahead of the lost station to try and recover it quickly
+        discChannel = selfPointer->nextChannel(stations[i].channel);
+        discChannel = selfPointer->nextChannel(discChannel);
         if (lostStations == numStations) {
           numResyncs++;
           stationsFound = 0;
           lostStations = 0;
           selfPointer->initStations();
-          selfPointer->setChannel(discChannel);
           return;
         }
       } else {
         stations[i].lastRx += stations[i].interval; // when packet should have been received
         stations[i].channel = selfPointer->nextChannel(stations[i].channel); // skip station's next channel in hop seq
-        readjust = true;
+        selfPointer->nextStation();
       }
     }
   }
-
-  if (readjust) {
-    selfPointer->nextStation();
-    selfPointer->setChannel(stations[curStation].channel);
+  // If led is on, switch it off after timeout period
+  if (ledOn && lastRx - ledTimer > LED_INTERVAL) {
+    selfPointer->ledOnOff(false);
   }
 }
 
@@ -230,15 +275,18 @@ void DavisRFM69::handleRadioInt() {
     }
 
     if (stationsFound < numStations && stations[stIx].interval == 0) {
-      stations[stIx].interval = (41 + id) * 1000000 / 16; // Davis' official tx interval in us
+      stations[stIx].interval = (41 + id) * 1000000 / 16 * DAVIS_INTV_CORR; // Davis' official tx interval in us
       stationsFound++;
       if (lostStations > 0) lostStations--;
     }
 
     if (stations[stIx].active) {
       packets++;
-	  stations[stIx].packets++;
+	    stations[stIx].packets++;
       fifo.queue((byte*)DATA, CHANNEL, -RSSI, FEI, stations[curStation].lastSeen > 0 ? lastRx - stations[curStation].lastSeen : 0);
+      if (_rxLED) {
+        selfPointer->ledOnOff(true);
+      }
     }
 
     stations[stIx].lostPackets = 0;
@@ -247,16 +295,9 @@ void DavisRFM69::handleRadioInt() {
 
     nextStation(); // skip curStation to next station expected to tx
 
-    if (stationsFound < numStations && stations[curStation].lastRx + stations[curStation].interval - lastRx > DISCOVERY_MINGAP) {
-      setChannel(discChannel);
-    } else {
-      setChannel(stations[curStation].channel); // reset current radio channel
-    }
-
-  } else {
-    setChannel(CHANNEL); // this always has to be done somewhere right after reception, even for ignored/bogus packets
+    // Call the packet update routine straight away - don't wait for interruptHandler
+    handleTimerInt();
   }
-
 }
 
 // Calculate the next hop of the specified channel
@@ -329,10 +370,16 @@ bool DavisRFM69::canSend()
 }
 
 // IMPORTANT: make sure buffer is at least 6 bytes
-void DavisRFM69::send(const void* buffer)
+void DavisRFM69::send(const void* buffer, byte channel /* default 255 */)
 {
+  Timer1.stop();    // stop any reciever activity
+  if (channel < 255) {
+    setChannel(channel);
+  }
+
   writeReg(REG_PACKETCONFIG2, (readReg(REG_PACKETCONFIG2) & 0xFB) | RF_PACKET2_RXRESTART); // avoid RX deadlocks
   sendFrame(buffer);
+  Timer1.resume();  // restart the receiver
 }
 
 // IMPORTANT: make sure buffer is at least 6 bytes
@@ -362,37 +409,65 @@ void DavisRFM69::sendFrame(const void* buffer)
   SPI.transfer(0xaa);
   SPI.transfer(0xaa);
 
+  SPI.transfer(0xaa);
+  SPI.transfer(0xaa);
+
   // sync word
   SPI.transfer(0xcb);
   SPI.transfer(0x89);
 
   // transmit first 6 byte of the buffer
-  for (byte i = 0; i < 6; i++)
-    SPI.transfer(reverseBits(((byte*)buffer)[i]));
+  for (byte i = 0; i < 6; i++) {
+    DATA[i] = ((byte *)buffer)[i];
+    SPI.transfer(reverseBits(DATA[i]));
+  }
 
   // transmit crc of first 6 bytes
-  SPI.transfer(reverseBits(crc >> 8));
-  SPI.transfer(reverseBits(crc & 0xff));
+  DATA[6] = crc >> 8;
+  DATA[7] = crc & 0xff;
+  SPI.transfer(reverseBits(DATA[6]));
+  SPI.transfer(reverseBits(DATA[7]));
 
   // transmit dummy repeater info (always 0xff, 0xff for a normal packet without repeaters)
-  SPI.transfer(0xff);
-  SPI.transfer(0xff);
+  DATA[8] = DATA[9] = 0xff;
+  SPI.transfer(DATA[8]);
+  SPI.transfer(DATA[9]);
 
   unselect();
 
   /* no need to wait for transmit mode to be ready since its handled by the radio */
   setMode(RF69_MODE_TX);
+  setTxMode(true);
   while (digitalRead(_interruptPin) == 0); //wait for DIO0 to turn HIGH signalling transmission finish
+  setTxMode(false);
   setMode(RF69_MODE_STANDBY);
+
+  // switch on LED?
+  if (_txLED) {
+    selfPointer->ledOnOff(true);
+  }
 }
 
 void DavisRFM69::setChannel(byte channel)
 {
-  CHANNEL = channel;
+    CHANNEL = channel;
   if (CHANNEL > bandTabLengths[band] - 1) CHANNEL = 0;
-  writeReg(REG_FRFMSB, pgm_read_byte(&bandTab[band][CHANNEL][0]));
-  writeReg(REG_FRFMID, pgm_read_byte(&bandTab[band][CHANNEL][1]));
-  writeReg(REG_FRFLSB, pgm_read_byte(&bandTab[band][CHANNEL][2]));
+
+  byte a = pgm_read_byte(&bandTab[band][CHANNEL][0]);
+  byte b = pgm_read_byte(&bandTab[band][CHANNEL][1]);
+  byte c = pgm_read_byte(&bandTab[band][CHANNEL][2]);
+
+  if (FREQ_CORR) {
+    uint32_t x = ((uint32_t)a<<16) | ((uint32_t)b<<8) | (uint32_t)c;
+    x += FREQ_CORR;
+    c =  x & 0x0000ff;
+    b = (x & 0x00ff00) >> 8;
+    a = (x & 0xff0000) >> 16;
+  }
+
+  writeReg(REG_FRFMSB, a);
+  writeReg(REG_FRFMID, b);
+  writeReg(REG_FRFLSB, c);
   if (!txMode) receiveBegin();
 }
 
@@ -629,4 +704,19 @@ void DavisRFM69::setBandwidth(byte bw)
 byte DavisRFM69::getBandTabLength()
 {
   return bandTabLengths[band];
+}
+
+void DavisRFM69::ledOnOff(bool on)
+{
+  pinMode(LED, OUTPUT);
+  if (on) {
+    if (!ledOn) {
+      ledOn = true;
+      digitalWrite(LED, HIGH);
+    }
+    ledTimer = micros();
+  } else if (ledOn) {
+    digitalWrite(LED, LOW);
+    ledOn = false;
+  }
 }

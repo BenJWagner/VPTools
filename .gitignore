@@ -1,3 +1,10 @@
 .pioenvs
 .clang_complete
 .gcc-flags.json
+Examples/RelayRxTx/DavisRFM69.cpp
+Examples/RelayRxTx/DavisRFM69.h
+Examples/RelayRxTx/TimerOne.h
+Examples/RelayRxTx/PacketFifo.cpp
+Examples/RelayRxTx/PacketFifo.h
+Examples/RelayRxTx/RFM69registers.h
+Examples/RelayRxTx/TimerOne.cpp
