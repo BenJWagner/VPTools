@@ -436,11 +436,11 @@ void DavisRFM69::sendFrame(const void* buffer)
   unselect();
 
   /* no need to wait for transmit mode to be ready since its handled by the radio */
-  setMode(RF69_MODE_TX);
   setTxMode(true);
+  setMode(RF69_MODE_TX);
   while (digitalRead(_interruptPin) == 0); //wait for DIO0 to turn HIGH signalling transmission finish
-  setTxMode(false);
   setMode(RF69_MODE_STANDBY);
+  setTxMode(false);
 
   // switch on LED?
   if (_txLED) {

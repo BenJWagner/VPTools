@@ -14,11 +14,10 @@
 
 
 #define SERIAL_BAUD 115200
-// Moteino #1
-//#define TX_ID 2
-// Moteino #2
-#define TX_ID 3 // 0..7, Davis transmitter ID, set to a different value than all other transmitters
+
+#define TX_ID 2 // 0..7, Davis transmitter ID, set to a different value than all other transmitters
                 // IMPORTANT: set it ONE LESS than you'd set it on the ISS via the DIP switch; 1 here is 2 on the ISS/Davis console
+
 #define TX_PERIOD (41 + TX_ID) * 1000000 / 16 * DAVIS_INTV_CORR // TX_PERIOD is a function of the ID and some constants, in micros
                                                             // starts at 2.5625 and increments by 0.625 up to 3.0 for every increment in TX_ID
 
