@@ -409,9 +409,6 @@ void DavisRFM69::sendFrame(const void* buffer)
   SPI.transfer(0xaa);
   SPI.transfer(0xaa);
 
-  SPI.transfer(0xaa);
-  SPI.transfer(0xaa);
-
   // sync word
   SPI.transfer(0xcb);
   SPI.transfer(0x89);
@@ -431,6 +428,9 @@ void DavisRFM69::sendFrame(const void* buffer)
   // transmit dummy repeater info (always 0xff, 0xff for a normal packet without repeaters)
   DATA[8] = DATA[9] = 0xff;
   SPI.transfer(DATA[8]);
+  SPI.transfer(DATA[9]);
+
+  // extra 0xff byte required after message for console to sync reliably
   SPI.transfer(DATA[9]);
 
   unselect();
