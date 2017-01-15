@@ -314,6 +314,7 @@ void sendNextPacket() {
 
   // set the battery status, if any are set, then set it in relayed data
   // if any station has the flag set, then re-transmit it
+  bitClear(ptr[0], 8);
   for (byte i = 0; i < NUM_RX_STATIONS; i++) {
     ptr[0] = ptr[0] | battery[i];
   }
