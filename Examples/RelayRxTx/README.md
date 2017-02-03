@@ -14,6 +14,22 @@ Obviously it can only be used with the array of sensor types that can legitimate
 My use-case is to attach my Solar and UV sensors to my Wind transmitter (id=1). This relay combines the wind/solar/UV data from the wind transmitter with
 the rain/temperature/humidity from the ISS (id=2), and retransmits the data as if there was a single ISS (id=3) for the console to listen to.
 
+The sketch implements a number of serial commands to configure some aspects of behaviour:
+
+  tn.nnnnn
+  (where 1.2 < n.nn > 0.8) - Sets the timer adjustment factor to compenstate for clock differences
+
+  on
+  (where n = 0, 1, 2) - Switches serial data output off (0) or on (1), or data only (2)
+
+  fnnnnnnnn
+  (where each n = 0 or 1) - Switches output from a particular transmitter id 1-8 off or on
+  You can send only the ids up to last one you want to set, eg: only turn transmitter 3 off = f110
+
+  ? - Shows the current configuration values
+
+The configuration values are stored to EEPROM so will survive a power cycle.
+
 The sketch requires either a Moteino or any similar Arduino-compatible device equipped with:
 * a Hope RF RFM69 series transceiver for the proper band for your country
 

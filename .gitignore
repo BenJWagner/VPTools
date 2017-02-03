@@ -8,3 +8,4 @@ Examples/RelayRxTx/PacketFifo.cpp
 Examples/RelayRxTx/PacketFifo.h
 Examples/RelayRxTx/RFM69registers.h
 Examples/RelayRxTx/TimerOne.cpp
+.vscode

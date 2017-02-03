@@ -57,19 +57,16 @@
 #define MAX_STATIONS 8            // max. stations this code is able to handle
 
 #define DISCOVERY_MINGAP 70000L       // Not used?
-#define DISCOVERY_GUARD  10000L        // time before expected transmission to switch on receiver
+#define DISCOVERY_GUARD  20000L        // time before expected transmission to switch on receiver
 #define DISCOVERY_STEP   150000000L   // time before moving the discovery channel on - to avoid interference?
-
-#define LED 9               // Moteino has LED on pin 9
-#define LED_INTERVAL 1000   // LED flash duration micros
 
 #define FREQ_CORR 0         // Frequency correction factor for RFM69 = (Required correction Hz) / 61
                             // E.g. 20kHz = 20000/61 = 328, should use RF_FSTEP, but 61 is close enough
-                            // My Moteino's #1 = -395, #2 = -340
+                            // My Moteino's #1 = -420, #2 = -350
 
 #define DAVIS_INTV_CORR 1   // Used in the formula to calculate the station transmission interval - (41 + id) / 16
                             // Nominally = 1, but I found my Arduino was measuring longer intervals on the microsec clock for my transmitters
-                            // My Moteino's #1 = 0.9977, #2 = 0.9972
+                            // My Moteino's #1 = 0.99811, #2 = 0.99770
 
 // Station data structure for managing radio reception
 typedef struct __attribute__((packed)) Station {
@@ -110,13 +107,10 @@ class DavisRFM69 {
     static volatile byte discChannel;
 	  static volatile uint32_t lastDiscStep;
 
-    static volatile bool     ledOn;
-    static volatile uint32_t ledTimer;
-
   	static PacketFifo fifo;
   	static Station *stations;
 
-    DavisRFM69(byte slaveSelectPin=SPI_CS, byte interruptPin=RF69_IRQ_PIN, bool isRFM69HW=false, byte interruptNum=RF69_IRQ_NUM, bool rxLED=false, bool txLED=false) {
+    DavisRFM69(byte slaveSelectPin=SPI_CS, byte interruptPin=RF69_IRQ_PIN, bool isRFM69HW=false, byte interruptNum=RF69_IRQ_NUM) {
       _slaveSelectPin = slaveSelectPin;
       _interruptPin = interruptPin;
       _interruptNum = interruptNum;
@@ -124,8 +118,7 @@ class DavisRFM69 {
       _packetReceived = false;
       _powerLevel = 31;
       _isRFM69HW = isRFM69HW;
-      _rxLED = rxLED;
-      _txLED = txLED;
+      _timerCalibration = DAVIS_INTV_CORR;
     }
 
     void setChannel(byte channel);
@@ -165,6 +158,7 @@ class DavisRFM69 {
   	void stopReceiver();
   	void setRssiThreshold(int rssiThreshold);
   	void setRssiThresholdRaw(int rssiThresholdRaw);
+    bool setTimerCalibation(float timerCalibration);
 
   protected:
     static volatile bool txMode;
@@ -182,15 +176,14 @@ class DavisRFM69 {
     byte _interruptNum;
     byte _powerLevel;
     bool _isRFM69HW;
-    bool _rxLED;
-    bool _txLED;
+
+    float _timerCalibration;
 
     void receiveBegin();
     void setMode(byte mode);
     void setHighPowerRegs(bool onOff);
     void select();
     void unselect();
-    void ledOnOff(bool on);
 };
 
 // FRF_MSB, FRF_MID, and FRF_LSB for the 51 North American, Australian, New Zealander & 5 European channels

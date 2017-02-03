@@ -37,8 +37,6 @@ volatile byte DavisRFM69::curStation = 0;
 volatile byte DavisRFM69::numStations = 0;
 volatile byte DavisRFM69::discChannel = 0;
 volatile uint32_t DavisRFM69::lastDiscStep;
-volatile bool     DavisRFM69::ledOn = false;
-volatile uint32_t DavisRFM69::ledTimer = 0;
 
 PacketFifo DavisRFM69::fifo;
 Station *DavisRFM69::stations;
@@ -150,7 +148,7 @@ void DavisRFM69::handleTimerInt() {
   // AND is the current station about to transmit?
   // AND is the channel different from current station channel OR we are not in receive mode?
   if (stations[curStation].interval > 0
-      && stations[curStation].lastRx + stations[curStation].interval - lastRx < DISCOVERY_GUARD
+      && (stations[curStation].lastRx + stations[curStation].interval - lastRx) < DISCOVERY_GUARD
       && (CHANNEL != stations[curStation].channel || _mode != RF69_MODE_RX)) {
 
     // Then we better start listening for next transmission
@@ -171,7 +169,7 @@ void DavisRFM69::handleTimerInt() {
 /* ######### BUT THIS DOES WORK EVERY TIME A NEW STATION IS FIRST 'DISCOVERED' - WEIRD! */
   // Is the current station about to transmit?
   if (stations[curStation].interval > 0
-        && stations[curStation].lastRx + stations[curStation].interval - lastRx < DISCOVERY_GUARD) {
+        && (stations[curStation].lastRx + stations[curStation].interval - lastRx) < DISCOVERY_GUARD) {
     // Yes, so we better listen for it
     // Is the channel same as current station channel?
     if (CHANNEL != stations[curStation].channel || _mode != RF69_MODE_RX) {
@@ -231,10 +229,6 @@ void DavisRFM69::handleTimerInt() {
       }
     }
   }
-  // If led is on, switch it off after timeout period
-  if (ledOn && lastRx - ledTimer > LED_INTERVAL) {
-    selfPointer->ledOnOff(false);
-  }
 }
 
 // Handle received packets, called from RFM69 ISR
@@ -275,7 +269,7 @@ void DavisRFM69::handleRadioInt() {
     }
 
     if (stationsFound < numStations && stations[stIx].interval == 0) {
-      stations[stIx].interval = (41 + id) * 1000000 / 16 * DAVIS_INTV_CORR; // Davis' official tx interval in us
+      stations[stIx].interval = (41 + id) * 1000000 / 16 * _timerCalibration; // Davis' official tx interval in us
       stationsFound++;
       if (lostStations > 0) lostStations--;
     }
@@ -284,9 +278,6 @@ void DavisRFM69::handleRadioInt() {
       packets++;
 	    stations[stIx].packets++;
       fifo.queue((byte*)DATA, CHANNEL, -RSSI, FEI, stations[curStation].lastSeen > 0 ? lastRx - stations[curStation].lastSeen : 0);
-      if (_rxLED) {
-        selfPointer->ledOnOff(true);
-      }
     }
 
     stations[stIx].lostPackets = 0;
@@ -441,11 +432,6 @@ void DavisRFM69::sendFrame(const void* buffer)
   while (digitalRead(_interruptPin) == 0); //wait for DIO0 to turn HIGH signalling transmission finish
   setMode(RF69_MODE_STANDBY);
   setTxMode(false);
-
-  // switch on LED?
-  if (_txLED) {
-    selfPointer->ledOnOff(true);
-  }
 }
 
 void DavisRFM69::setChannel(byte channel)
@@ -613,8 +599,8 @@ void DavisRFM69::setHighPower(bool onOff) {
   writeReg(REG_OCP, _isRFM69HW ? RF_OCP_OFF : RF_OCP_ON);
   if (_isRFM69HW) //turning ON
     writeReg(REG_PALEVEL, (readReg(REG_PALEVEL) & 0x1F) | RF_PALEVEL_PA1_ON | RF_PALEVEL_PA2_ON); //enable P1 & P2 amplifier stages
-    else
-      writeReg(REG_PALEVEL, RF_PALEVEL_PA0_ON | RF_PALEVEL_PA1_OFF | RF_PALEVEL_PA2_OFF | _powerLevel); //enable P0 only
+  else
+    writeReg(REG_PALEVEL, RF_PALEVEL_PA0_ON | RF_PALEVEL_PA1_OFF | RF_PALEVEL_PA2_OFF | _powerLevel); //enable P0 only
 }
 
 void DavisRFM69::setHighPowerRegs(bool onOff) {
@@ -706,17 +692,16 @@ byte DavisRFM69::getBandTabLength()
   return bandTabLengths[band];
 }
 
-void DavisRFM69::ledOnOff(bool on)
+bool DavisRFM69::setTimerCalibation(float timerCalibration)
 {
-  pinMode(LED, OUTPUT);
-  if (on) {
-    if (!ledOn) {
-      ledOn = true;
-      digitalWrite(LED, HIGH);
+  if (timerCalibration >= 0.8 && timerCalibration <= 1.2) {
+    _timerCalibration = timerCalibration;
+  for (int i = 0; i < numStations; i++) {
+    if (stations[i].interval > 0) {
+      stations[i].interval = (41 + stations[i].id) * 1000000 / 16 * _timerCalibration;
     }
-    ledTimer = micros();
-  } else if (ledOn) {
-    digitalWrite(LED, LOW);
-    ledOn = false;
+  }
+  } else {
+    return false;
   }
 }
