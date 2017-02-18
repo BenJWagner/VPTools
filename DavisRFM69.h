@@ -119,6 +119,7 @@ class DavisRFM69 {
       _powerLevel = 31;
       _isRFM69HW = isRFM69HW;
       _timerCalibration = DAVIS_INTV_CORR;
+      _freqCalibration = FREQ_CORR;
     }
 
     void setChannel(byte channel);
@@ -158,7 +159,10 @@ class DavisRFM69 {
   	void stopReceiver();
   	void setRssiThreshold(int rssiThreshold);
   	void setRssiThresholdRaw(int rssiThresholdRaw);
-    bool setTimerCalibation(float timerCalibration);
+    float getTimerCalibation();
+    bool  setTimerCalibation(float timerCalibration);
+    int   getFrequencyCalibation();
+    bool  setFrequencyCalibation(int freqCalibration);
 
   protected:
     static volatile bool txMode;
@@ -178,6 +182,7 @@ class DavisRFM69 {
     bool _isRFM69HW;
 
     float _timerCalibration;
+    int   _freqCalibration;
 
     void receiveBegin();
     void setMode(byte mode);

@@ -29,7 +29,7 @@
 #define S_OK  true
 #define S_ERR false
 
-#define CONFIG_VERSION "rt1" // ID of the settings block
+#define CONFIG_VERSION "rt2" // ID of the settings block
 #define CONFIG_START 32      // Where to store the config data in EEPROM
 
 // Example settings structure
@@ -40,12 +40,14 @@ struct StoreStruct {
   byte output;
   char filter[8];
   float timer;
+  int frequency;
 } storage = {
   CONFIG_VERSION,
   // The default values
   1,
   {'1','1','1','1','1','1','1','1'},
-  DAVIS_INTV_CORR
+  1,
+  0
 };
 
 // Payload data structure for transmitting data
@@ -141,12 +143,14 @@ byte battery[NUM_RX_STATIONS];  // Array to hold battery status from each transm
 void setup() {
   Serial.begin(SERIAL_BAUD);
 
+  // Get the default values for the config
   loadConfig();
 
   radio.setStations(stations, NUM_RX_STATIONS);
   radio.initialize(FREQ_BAND_US);
   radio.setBandwidth(RF69_DAVIS_BW_NARROW);
   radio.setTimerCalibation(storage.timer);
+  radio.setFrequencyCalibation(storage.frequency);
 
   // set the payload transmitter ids to match our transmitter id
   payloads.uv[0]       = payloads.uv[0]       + TX_ID;
@@ -497,26 +501,21 @@ void printIt(byte *packet, char rxTx, byte channel, uint32_t packets, uint32_t l
 
     case VP2P_UV:
       Serial.print("uv\t");
-      val = word(packet[3], packet[4]) >> 6;
-      if (val < 0x3ff) {
-        Serial.print((float)(val / 50.0), 1);
-     } else {
+      if (packet[3] == 0xff) {
         Serial.print('-');
+      } else {
+        val = (packet[3] << 2) + (packet[4] >> 6);
+        Serial.print((float)(val / 50.0), 1);
       }
       break;
 
     case VP2P_SOLAR:
       Serial.print("solar\t");
-      val = word(packet[3], packet[4]) >> 6;
-      if (val < 0x3fe) {
-        if (val > 3) {
-          val = (val * 1.757936);
-        } else {
-          val = 0;
-        }
-        Serial.print(val);
-      } else {
+      if (packet[3] == 0xff) {
         Serial.print('-');
+      } else {
+        val = (packet[3] << 2) + (packet[4] >> 6);
+        Serial.print((int)(val * 1.757936));
       }
       break;
 
@@ -686,6 +685,10 @@ void processSerial() {
           cmdFilter(s + 1);
           break;
 
+        case 'q':
+          cmdFreq(s + 1);
+          break;
+
         case '?':
           cmdShowValues();
           break;
@@ -717,6 +720,8 @@ void cmdShowValues() {
   for (unsigned int i=0; i<8; i++) {
     Serial.print(storage.filter[i]);
   }
+  Serial.print(F(" q"));
+  Serial.print(storage.frequency);
   Serial.println();
 }
 
@@ -777,6 +782,20 @@ void cmdFilter(char *s) {
 }
 
 
+void cmdFreq(char *s) {
+  int q = atoi(s);
+  if (q < -1000 || q > 1000) {
+    printStatusF(S_ERR, F("out of range"));
+    return;
+  }
+  radio.setFrequencyCalibation(q);
+  storage.frequency = q;
+  saveConfig();
+  Serial.print(F("# OK q"));
+  Serial.println(q);
+}
+
+
 void loadConfig() {
   // To make sure there are settings, and they are OURS!
   // If nothing is found it will use the default settings.
@@ -786,6 +805,9 @@ void loadConfig() {
     for (unsigned int t=0; t<sizeof(storage); t++) {
       *((char*)&storage + t) = EEPROM.read(CONFIG_START + t);
     }
+  } else {
+    storage.timer = radio.getTimerCalibation();
+    storage.frequency = radio.getFrequencyCalibation();
   }
 }
 

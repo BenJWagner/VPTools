@@ -443,9 +443,9 @@ void DavisRFM69::setChannel(byte channel)
   byte b = pgm_read_byte(&bandTab[band][CHANNEL][1]);
   byte c = pgm_read_byte(&bandTab[band][CHANNEL][2]);
 
-  if (FREQ_CORR) {
+  if (_freqCalibration) {
     uint32_t x = ((uint32_t)a<<16) | ((uint32_t)b<<8) | (uint32_t)c;
-    x += FREQ_CORR;
+    x += _freqCalibration;
     c =  x & 0x0000ff;
     b = (x & 0x00ff00) >> 8;
     a = (x & 0xff0000) >> 16;
@@ -692,15 +692,36 @@ byte DavisRFM69::getBandTabLength()
   return bandTabLengths[band];
 }
 
+float DavisRFM69::getTimerCalibation()
+{
+  return _timerCalibration;
+}
+
 bool DavisRFM69::setTimerCalibation(float timerCalibration)
 {
   if (timerCalibration >= 0.8 && timerCalibration <= 1.2) {
     _timerCalibration = timerCalibration;
-  for (int i = 0; i < numStations; i++) {
-    if (stations[i].interval > 0) {
-      stations[i].interval = (41 + stations[i].id) * 1000000 / 16 * _timerCalibration;
+    for (int i = 0; i < numStations; i++) {
+      if (stations[i].interval > 0) {
+        stations[i].interval = (41 + stations[i].id) * 1000000 / 16 * _timerCalibration;
+      }
     }
+    return true;
+  } else {
+    return false;
   }
+}
+
+int DavisRFM69::getFrequencyCalibation()
+{
+  return _freqCalibration;
+}
+
+bool DavisRFM69::setFrequencyCalibation(int freqCalibration)
+{
+  if (freqCalibration < 800 && freqCalibration > -800) {
+    _freqCalibration = freqCalibration;
+    return true;
   } else {
     return false;
   }
