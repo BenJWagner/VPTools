@@ -7,6 +7,7 @@
 #define PACKET_LEN 10
 
 struct __attribute__((packed)) RadioData {
+    uint32_t tim;
     byte packet[PACKET_LEN];
     byte channel;
     byte rssi;
@@ -16,7 +17,7 @@ struct __attribute__((packed)) RadioData {
 
 class PacketFifo {
 public:
-    bool queue(byte* packet, byte channel, byte rssi, int16_t fei, uint32_t delta);
+    bool queue(uint32_t tim, byte* packet, byte channel, byte rssi, int16_t fei, uint32_t delta);
     RadioData* dequeue();
     void flush();
     bool hasElements();

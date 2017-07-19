@@ -1,8 +1,9 @@
 
-#include "PacketFifo.h"
+#include "packetfifo.h"
 
-bool PacketFifo::queue(byte* packet, byte channel, byte rssi, int16_t fei, uint32_t delta) {
+bool PacketFifo::queue(uint32_t tim, byte* packet, byte channel, byte rssi, int16_t fei, uint32_t delta) {
   if (qLen < FIFO_SIZE) {
+    packetFifo[packetIn].tim = tim;
     memcpy(&packetFifo[packetIn].packet, packet, PACKET_LEN);
     packetFifo[packetIn].channel = channel;
     packetFifo[packetIn].rssi = rssi;

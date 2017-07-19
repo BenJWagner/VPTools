@@ -143,33 +143,9 @@ void DavisRFM69::setStations(Station *_stations, byte n) {
 void DavisRFM69::handleTimerInt() {
   uint32_t lastRx = micros();
 
-/* ######## THIS DOESN'T WORK RELIABLY WHEN A NEW STATION IS FIRST 'DISCOVERED'
-  // Is the current station 'live'?
-  // AND is the current station about to transmit?
-  // AND is the channel different from current station channel OR we are not in receive mode?
-  if (stations[curStation].interval > 0
-      && (stations[curStation].lastRx + stations[curStation].interval - lastRx) < DISCOVERY_GUARD
-      && (CHANNEL != stations[curStation].channel || _mode != RF69_MODE_RX)) {
-
-    // Then we better start listening for next transmission
-    selfPointer->setChannel(stations[curStation].channel);
-
-
-  // ELSE are there stations still left to discover?
-  // AND we aren't on the 'discovery' channel OR we are not in receive mode?
-  } else if (stationsFound != numStations
-      && (CHANNEL != discChannel || _mode != RF69_MODE_RX)) {
-
-    // Then start listening for new stations
-    selfPointer->setChannel(discChannel);
-
-  }
-*/
-
-/* ######### BUT THIS DOES WORK EVERY TIME A NEW STATION IS FIRST 'DISCOVERED' - WEIRD! */
   // Is the current station about to transmit?
   if (stations[curStation].interval > 0
-        && (stations[curStation].lastRx + stations[curStation].interval - lastRx) < DISCOVERY_GUARD) {
+        && (long)(stations[curStation].lastRx + stations[curStation].interval - lastRx) < DISCOVERY_GUARD) {
     // Yes, so we better listen for it
     // Is the channel same as current station channel?
     if (CHANNEL != stations[curStation].channel || _mode != RF69_MODE_RX) {
@@ -191,8 +167,6 @@ void DavisRFM69::handleTimerInt() {
       }
     }
   }
-
-
 
   if (lastRx - lastDiscStep > DISCOVERY_STEP) {
     discChannel = selfPointer->nextChannel(discChannel);
@@ -243,7 +217,7 @@ void DavisRFM69::handleRadioInt() {
   // repeater packets checksum bytes (0..5) and (8..9), so try this at mismatch
   if (calcCrc != rxCrc) {
     calcCrc = DavisRFM69::crc16_ccitt(DATA + 8, 2, calcCrc);
-	repeaterCrcTried = true;
+    repeaterCrcTried = true;
   }
 
   delayMicroseconds(POST_RX_WAIT); // we need this, no idea why, but makes reception almost perfect
@@ -269,15 +243,15 @@ void DavisRFM69::handleRadioInt() {
     }
 
     if (stationsFound < numStations && stations[stIx].interval == 0) {
-      stations[stIx].interval = (41 + id) * 1000000 / 16 * _timerCalibration; // Davis' official tx interval in us
+      stations[stIx].interval = (long)((41 + id) * 1000000.0 / 16.0 * _timerCalibration); // Davis' official tx interval in us
       stationsFound++;
       if (lostStations > 0) lostStations--;
     }
 
     if (stations[stIx].active) {
       packets++;
-	    stations[stIx].packets++;
-      fifo.queue((byte*)DATA, CHANNEL, -RSSI, FEI, stations[curStation].lastSeen > 0 ? lastRx - stations[curStation].lastSeen : 0);
+      stations[stIx].packets++;
+      fifo.queue(lastRx, (byte*)DATA, CHANNEL, -RSSI, FEI, stations[curStation].lastSeen > 0 ? (long)(lastRx - stations[curStation].lastSeen) : 0);
     }
 
     stations[stIx].lostPackets = 0;
@@ -338,15 +312,17 @@ void DavisRFM69::interruptHandler() {
     FEI = word(readReg(REG_FEIMSB), readReg(REG_FEILSB));
     setMode(RF69_MODE_STANDBY);
     select();   // Select RFM69 module, disabling interrupts
+    Timer1.stop();
     SPI.transfer(REG_FIFO & 0x7f);
 
     for (byte i = 0; i < DAVIS_PACKET_LEN; i++) DATA[i] = reverseBits(SPI.transfer(0));
-
+ 
+    unselect();  // Unselect RFM69 module, enabling interrupts
+ 
     _packetReceived = true;
 
     handleRadioInt();
-
-    unselect();  // Unselect RFM69 module, enabling interrupts
+    Timer1.resume();
   }
 }
 
@@ -424,14 +400,15 @@ void DavisRFM69::sendFrame(const void* buffer)
   // extra 0xff byte required after message for console to sync reliably
   SPI.transfer(DATA[9]);
 
-  unselect();
-
   /* no need to wait for transmit mode to be ready since its handled by the radio */
   setTxMode(true);
   setMode(RF69_MODE_TX);
   while (digitalRead(_interruptPin) == 0); //wait for DIO0 to turn HIGH signalling transmission finish
+
   setMode(RF69_MODE_STANDBY);
   setTxMode(false);
+
+  unselect();
 }
 
 void DavisRFM69::setChannel(byte channel)

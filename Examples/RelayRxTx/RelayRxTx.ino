@@ -11,9 +11,10 @@
 
 #include "DavisRFM69.h"
 #include "PacketFifo.h"
+#include "MsTimer2.h"
 
 #define LED 9                // Moteino has LED on pin 9
-#define LED_INTERVAL 1000    // LED flash duration micros
+#define LED_INTERVAL 1000L   // LED flash duration micros
 
 #define SERIAL_BAUD 115200
 
@@ -99,15 +100,16 @@ static const byte txseq[20] = {
 // DavisRFM69 radio base class;
 DavisRFM69 radio;
 
-// txPeriod is a function of the ID and some constants, in micros
+// txPeriod is a function of the ID and some constants, in millisecs
 // starts at 2.5625 and increments by 0.625 up to 3.0 for every increment in TX_ID
 // DAVIS_INTV_CORR is defined in DavisRFM69.h
 
-uint32_t txPeriod = (41 + TX_ID) * 1000000 / 16 * DAVIS_INTV_CORR;
-uint32_t lastTx;        // last time a radio transmission started
-//uint32_t shouldTx;      // last time a radio transmission should have started
+uint32_t txPeriod;
+uint32_t lastTx;
+uint32_t txPackets = 0;
 byte     seqIndex;      // current packet type index into txseq array
 byte     channel;       // next transmission channel
+byte     digits0 = 1;   // used for print formatting
 byte     digits1 = 1;   // used for print formatting
 byte     digits2 = 1;   // used for print formatting
 bool     ledOn;         // tracks LED status
@@ -161,8 +163,9 @@ void setup() {
   payloads.hum[0]      = payloads.hum[0]      + TX_ID;
   payloads.rain[0]     = payloads.rain[0]     + TX_ID;
 
-  lastTx = micros();
-//  shouldTx = lastTx;
+
+
+  txPeriod = (long)((41 + TX_ID) * 1000.0 * storage.timer / 16.0);
   seqIndex = 0;
   channel = 0;
   ledOn = false;
@@ -172,6 +175,11 @@ void setup() {
     battery[i] = 0;
   }
 
+  MsTimer2::set(txPeriod, sendNextPacket);
+  MsTimer2::start();
+
+  lastTx = micros();
+
   Serial.println("Setup done.");
   // print a header for the serial data log
   Serial.println("time\tRx/Tx\traw_packet_data              \tid\tpacket_counts\tchan\trssi\tfei\tdelta_t\tbatt\twind\tdir\tsensor\tvalue");
@@ -180,28 +188,16 @@ void setup() {
 
 // Main loop
 void loop() {
-//  if (micros() - shouldTx < txPeriod) {
-  if (micros() - lastTx < txPeriod) {
-    // Not time to transmit yet, check if we have received any data
-    while (radio.fifo.hasElements()) {
-      decode_packet(radio.fifo.dequeue());
-      if (RX_LED) {
-        ledOnOff(true);
-      }
-    }
+  while (radio.fifo.hasElements()) {
+    decode_packet(radio.fifo.dequeue());
+  }
 
-    // Any serial commands to process?
-    processSerial();
+  // Any serial commands to process?
+  processSerial();
 
-    // Time to switch the LED off?
-    if (ledOn && micros() - ledTimer > LED_INTERVAL) {
-      ledOnOff(false);
-    }
-  } else {
-    sendNextPacket();
-    if (TX_LED) {
-      ledOnOff(true);
-    }
+  // Time to switch the LED off?
+  if (ledOn && micros() - ledTimer > LED_INTERVAL) {
+    ledOnOff(false);
   }
 }
 
@@ -217,114 +213,125 @@ void decode_packet(RadioData* rd) {
   // TODO: Need to detect loss of reception from a transimitter and then send 'not connected' packets for the sensors associated
   //       with that transmitter id until contact is regained. At present the code 'flat-lines' with the last received values
 
-  // save wind data from every packet type - if valid
-  if (packet[2] != 0 || id == payloadStations.wind) {
-    payloads.wind[0] = packet[1];
-    payloads.wind[1] = packet[2];
-    payloads.wind[2] = packet[4];
-    if (id != payloadStations.wind) {
-      payloadStations.wind = id;
+  if (id == TX_ID) {  // Transmission packet
+   if (TX_LED) {
+      ledOnOff(true);
     }
+    // dump it to the serial port
+    printIt(rd->tim, rd->packet, 'T', rd->channel, 0, 0, 0, 0, rd->delta, 0);
+  } else {           // Received packet
+    if (RX_LED) {
+      ledOnOff(true);
+    }
+
+    // save wind data from every packet type - if valid
+    if ((packet[2] | (packet[4] & 2)) != 0 || id == payloadStations.wind) {
+      payloads.wind[0] = packet[1];
+      payloads.wind[1] = packet[2];
+      payloads.wind[2] = packet[4];
+      if (id != payloadStations.wind) {
+        payloadStations.wind = id;
+      }
+    }
+
+    // save battery status
+    battery[id] = packet[0] & 8;
+
+
+    switch (packet[0] >> 4) {
+      case VP2P_UV:
+        val = word(packet[3], packet[4]) >> 6;
+        if (val < 0x3ff || id == payloadStations.uv) {
+          copyData = true;
+          ptr = payloads.uv;
+          if (id != payloadStations.uv) {
+            payloadStations.uv = id;
+          }
+       }
+       break;
+
+      case VP2P_SOLAR:
+        val = word(packet[3], packet[4]) >> 6;
+        if (val < 0x3fe || id == payloadStations.solar) {
+          copyData = true;
+          ptr = payloads.solar;
+          if (id != payloadStations.solar) {
+            payloadStations.solar = id;
+          }
+        }
+        break;
+
+      case VP2P_RAIN:
+        if (packet[3] != 0x80 || id == payloadStations.rain) {
+          copyData = true;
+          ptr = payloads.rain;
+          if (id != payloadStations.rain) {
+            payloadStations.rain = id;
+          }
+        }
+        break;
+
+      case VP2P_RAINSECS:
+        // PROBLEM - We need to store the data from the station when it resets to the 'not connected' value if it isn't raining,
+        //         - but NOT from any other stations that may be reporting 'not connected' because they aren't rain stations!
+        val = (packet[4] & 0x30) << 4 | packet[3];
+        // is the packet from the station that previuously reported rain, OR do we have some rain data
+        if (val != 0x3ff || id == payloadStations.rain) {
+          // we have some rain data
+          copyData = true;
+          ptr = payloads.rainsecs;
+          if (id != payloadStations.rain) {
+            payloadStations.rain = id;
+          }
+        }
+        break;
+
+      case VP2P_TEMP:
+        if (packet[3] != 0xff || id == payloadStations.temp) {
+          copyData = true;
+          ptr = payloads.temp;
+          if (id != payloadStations.temp) {
+            payloadStations.temp = id;
+          }
+        }
+        break;
+
+      case VP2P_HUMIDITY:
+        val = ((packet[4] >> 4) << 8 | packet[3]) / 10; // 0 -> no sensor
+        if (val > 0 || id == payloadStations.hum) {
+          copyData = true;
+          ptr = payloads.hum;
+          if (id != payloadStations.hum) {
+            payloadStations.hum = id;
+          }
+        }
+        break;
+
+      case VP2P_WINDGUST:
+        if (packet[2] > 0 || id == payloadStations.wind) {  // 0 -> no sensor
+          copyData = true;
+          ptr = payloads.windgust;
+          if (id != payloadStations.wind) {
+            payloadStations.wind = id;
+          }
+        }
+        break;
+
+      case VP2P_SOIL_LEAF:
+        break;
+      case VUEP_VCAP:
+        break;
+      case VUEP_VSOLAR:
+        break;
+    }
+
+    if (copyData) {
+      memcpy(ptr + 1, (byte *)packet + 1, 5);
+    }
+
+    // dump it to the serial port
+    printIt(rd->tim, rd->packet, 'R', rd->channel, stations[id].packets, stations[id].missedPackets, rd->rssi, rd->fei, rd->delta, stations[id].numResyncs);
   }
-
-  // save battery status
-  battery[id] = packet[0] & 8;
-
-
-  switch (packet[0] >> 4) {
-    case VP2P_UV:
-      val = word(packet[3], packet[4]) >> 6;
-      if (val < 0x3ff || id == payloadStations.uv) {
-        copyData = true;
-        ptr = payloads.uv;
-        if (id != payloadStations.uv) {
-          payloadStations.uv = id;
-        }
-     }
-     break;
-
-    case VP2P_SOLAR:
-      val = word(packet[3], packet[4]) >> 6;
-      if (val < 0x3fe || id == payloadStations.solar) {
-        copyData = true;
-        ptr = payloads.solar;
-        if (id != payloadStations.solar) {
-          payloadStations.solar = id;
-        }
-      }
-      break;
-
-    case VP2P_RAIN:
-      if (packet[3] != 0x80 || id == payloadStations.rain) {
-        copyData = true;
-        ptr = payloads.rain;
-        if (id != payloadStations.rain) {
-          payloadStations.rain = id;
-        }
-      }
-      break;
-
-    case VP2P_RAINSECS:
-      // PROBLEM - We need to store the data from the station when it resets to the 'not connected' value if it isn't raining,
-      //         - but NOT from any other stations that may be reporting 'not connected' because they aren't rain stations!
-      val = (packet[4] & 0x30) << 4 | packet[3];
-      // is the packet from the station that previuously reported rain, OR do we have some rain data
-      if (val != 0x3ff || id == payloadStations.rain) {
-        // we have some rain data
-        copyData = true;
-        ptr = payloads.rainsecs;
-        if (id != payloadStations.rain) {
-          payloadStations.rain = id;
-        }
-      }
-      break;
-
-    case VP2P_TEMP:
-      if (packet[3] != 0xff || id == payloadStations.temp) {
-        copyData = true;
-        ptr = payloads.temp;
-        if (id != payloadStations.temp) {
-          payloadStations.temp = id;
-        }
-      }
-      break;
-
-    case VP2P_HUMIDITY:
-      val = ((packet[4] >> 4) << 8 | packet[3]) / 10; // 0 -> no sensor
-      if (val > 0 || id == payloadStations.hum) {
-        copyData = true;
-        ptr = payloads.hum;
-        if (id != payloadStations.hum) {
-          payloadStations.hum = id;
-        }
-      }
-      break;
-
-    case VP2P_WINDGUST:
-      if (packet[2] > 0 || id == payloadStations.wind) {  // 0 -> no sensor
-        copyData = true;
-        ptr = payloads.windgust;
-        if (id != payloadStations.wind) {
-          payloadStations.wind = id;
-        }
-      }
-      break;
-
-    case VP2P_SOIL_LEAF:
-      break;
-    case VUEP_VCAP:
-      break;
-    case VUEP_VSOLAR:
-      break;
-  }
-
-  if (copyData) {
-    memcpy(ptr + 1, (byte *)packet + 1, 5);
-  }
-
-  // dump it to the serial port
-  printIt(rd->packet, 'R', rd->channel, radio.packets, radio.lostPackets, rd->rssi, rd->fei, rd->delta);
-
 }
 
 void printHex(volatile byte* packet, byte len) {
@@ -339,6 +346,16 @@ void printHex(volatile byte* packet, byte len) {
 void sendNextPacket() {
   byte *ptr;
   uint32_t now, delta;
+
+  // disable interrrupts so receiving packets does not distrupt the transmission.
+  noInterrupts();
+
+  // turn off receiver to prevent reception while we prepare to transmit
+  radio.setMode(RF69_MODE_STANDBY);
+
+  if (TX_LED) {
+    ledOnOff(true);
+  }
 
   switch (txseq[seqIndex]) {
     case VP2P_UV:
@@ -364,8 +381,6 @@ void sendNextPacket() {
       break;
   }
 
-  noInterrupts();
-
   // set the battery status, if any are set, then set it in relayed data
   // if any station has the flag set, then re-transmit it
   bitClear(ptr[0], 3);
@@ -376,35 +391,35 @@ void sendNextPacket() {
   // Add in the latest wind data
   ptr[1] = payloads.wind[0];
   ptr[2] = payloads.wind[1];
-  ptr[4] = (ptr[4] & 0xfe) | (payloads.wind[2] & 0x1);
+//  ptr[4] = (ptr[4] & 0xfe) | (payloads.wind[2] & 0x1);
+  ptr[4] = (ptr[4] & 0xfc) | (payloads.wind[2] & 0x3);
 
   // clear the flag if wind data valid
   if (ptr[2] != 0) {
     bitClear(ptr[4], 2);
   }
 
+  // Send packet
+  radio.send(ptr, channel);
 
   // Get current time
   now = micros();
 
-  // Send packet
-  radio.send(ptr, channel);
-
   // re-enable interrrupts
   interrupts();
 
-  // dump it to the serial port
-  printIt((byte*)radio.DATA, 'T', channel, 0, 0, 0, 0, now - lastTx);
+  // dump it to the fifo queue for printing
+  radio.fifo.queue(now, (byte*)radio.DATA, channel, 0, 0, now - lastTx);
 
   // record the last txmt time
   lastTx = now;
-  // increment the next time we should transmit
-  //shouldTx += txPeriod;
 
   // move things on for the next transmission...
   channel = radio.nextChannel(channel);
   seqIndex = nextPktType(seqIndex);
 
+  // count how many packets we have sent - just for interest
+  txPackets++;
 }
 
 
@@ -415,7 +430,7 @@ byte nextPktType(byte packetIndex) {
 
 
 // Dump data to serial port
-void printIt(byte *packet, char rxTx, byte channel, uint32_t packets, uint32_t lostPackets, byte rssi, int16_t fei, uint32_t delta) {
+void printIt(uint32_t tim, byte *packet, char rxTx, byte channel, uint32_t packets, uint32_t lostPackets, byte rssi, int16_t fei, uint32_t delta, uint32_t resyncs) {
   int val;
   byte *ptr;
   byte i;
@@ -426,8 +441,25 @@ void printIt(byte *packet, char rxTx, byte channel, uint32_t packets, uint32_t l
     return;
   }
 
+  if (storage.output == 3) {
+    if (rxTx == 'R' && (packet[2] | (packet[4] & 2) != 0)) {
+      // wind data only
+      int stIx = rxTx == 'R' ? radio.findStation(id) : TX_ID;
+      if (stations[stIx].type == STYPE_VUE) {
+        val = (packet[2] << 1) | (packet[4] & 2) >> 1;
+        val = round(val * 360 / 512);
+      } else {
+        val = 9 + round((packet[2] - 1) * 342.0 / 255.0);
+      }
+      Serial.print(packet[1]);
+      Serial.print(',');
+      Serial.println(val);
+    }
+    return;
+  }
+
   if (storage.output == 1) {
-    Serial.print(micros() / 1000);
+    Serial.print(tim);
     Serial.print('\t');
     Serial.print(rxTx);
     Serial.print('\t');
@@ -438,12 +470,18 @@ void printIt(byte *packet, char rxTx, byte channel, uint32_t packets, uint32_t l
     Serial.print('\t');
 
     if (rxTx == 'R') {
+      digits0 = Serial.print(resyncs);
+      Serial.print('/');
       digits1 = Serial.print(packets);
       Serial.print('/');
       digits2 = Serial.print(lostPackets);
       Serial.print('/');
       Serial.print((float)(packets * 100.0 / (packets + lostPackets)), 1);
     } else {
+      for (i=0; i < digits0; i++) {
+        Serial.print('-');
+      }
+      Serial.print('/');
       for (i=0; i < digits1; i++) {
         Serial.print('-');
       }
@@ -480,8 +518,9 @@ void printIt(byte *packet, char rxTx, byte channel, uint32_t packets, uint32_t l
 
     int stIx = rxTx == 'R' ? radio.findStation(id) : TX_ID;
 
-    // wind data is present in every packet, windd == 0 (packet[2] == 0) means there's no anemometer
-    if (packet[2] != 0) {
+    // wind data is present in every packet, windd == 0
+    // (packet[2] == 0) means there's no anemometer??? No, get packet[2]=0 when direction from the North!
+    if ((packet[2] | (packet[4] & 2) != 0))  {
       if (stations[stIx].type == STYPE_VUE) {
         val = (packet[2] << 1) | (packet[4] & 2) >> 1;
         val = round(val * 360 / 512);
@@ -515,7 +554,7 @@ void printIt(byte *packet, char rxTx, byte channel, uint32_t packets, uint32_t l
         Serial.print('-');
       } else {
         val = (packet[3] << 2) + (packet[4] >> 6);
-        Serial.print((int)(val * 1.757936));
+        Serial.print(round(val * 1.758));
       }
       break;
 
@@ -676,23 +715,21 @@ void processSerial() {
         case 't':
           cmdTimer(s + 1);
           break;
-
         case 'o':
           cmdOutput(s + 1);
           break;
-
         case 'f':
           cmdFilter(s + 1);
           break;
-
         case 'q':
           cmdFreq(s + 1);
           break;
-
         case '?':
           cmdShowValues();
           break;
-
+        case 'r':
+          cmdShowRadio();
+          break;
         default:
           printStatusF(S_ERR, F("bad command"));
       }
@@ -732,7 +769,8 @@ void cmdTimer(char *s) {
     printStatusF(S_ERR, F("out of range"));
     return;
   }
-  txPeriod = (41 + TX_ID) * 1000000 / 16 * t;
+  txPeriod = (long)((41 + TX_ID) * 1000.0 / 16.0 * t);
+  MsTimer2::setTimeout(txPeriod);
   radio.setTimerCalibation(t);
   storage.timer = t;
   saveConfig();
@@ -751,6 +789,9 @@ void cmdOutput(char *s) {
   } else if (s[0] == '2') {
     storage.output = 2;
     printStatusF(S_OK, F("output data only"));
+  } else if (s[0] == '3') {
+    storage.output = 3;
+    printStatusF(S_OK, F("output wind data only"));
   } else {
     printStatusF(S_ERR, F("unimplemented"));
     return;
@@ -795,6 +836,37 @@ void cmdFreq(char *s) {
   Serial.println(q);
 }
 
+void cmdShowRadio() {
+  Serial.println("id\tlastRx\tlastSeen\tinterval\tresyncs\tpackets\tmissed\tlost");
+  for (int i = 0; i < NUM_RX_STATIONS; i++) {
+    Serial.print(stations[i].id);
+    Serial.print('\t');
+    Serial.print(stations[i].lastRx);
+    Serial.print('\t');
+    Serial.print(stations[i].lastSeen);
+    Serial.print('\t');
+    Serial.print(stations[i].interval);
+    Serial.print('\t');
+    Serial.print(stations[i].numResyncs);
+    Serial.print('\t');
+    Serial.print(stations[i].packets);
+    Serial.print('\t');
+    Serial.print(stations[i].missedPackets);
+    Serial.print('\t');
+    Serial.println(stations[i].lostPackets);
+  }
+  // and the transmitter
+    Serial.print(TX_ID);
+    Serial.print('\t');
+    Serial.print(lastTx);
+    Serial.print('\t');
+    Serial.print("---");
+    Serial.print('\t');
+    Serial.print(txPeriod * 1000); // convert ms to micros for compatibility with rx ids
+    Serial.print("\t---\t");
+    Serial.print(txPackets);
+    Serial.println("\t---\t---");
+}
 
 void loadConfig() {
   // To make sure there are settings, and they are OURS!
