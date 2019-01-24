@@ -30,6 +30,9 @@ The sketch implements a number of serial commands to configure some aspects of b
     (where each n = 0 or 1) - Switches output from a particular transmitter id 1-8 off or on
     You can send only the ids up to last one you want to set, eg: only turn transmitter 3 off = f110
 
+  qnnnnn
+    (where -1000 < nnn < 1000) - Sets the RFM69 frequency offset
+
   r
     Shows the current radio stats for each transmitter id
 
