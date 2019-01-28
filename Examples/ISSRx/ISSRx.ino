@@ -149,6 +149,9 @@ void decode_packet(RadioData* rd) {
         print_value("temp", -100);
       } else {
         val = (int)packet[3] << 4 | packet[4] >> 4;
+        if (packet[3] & 0x80 != 0) {
+          val = -(val ^ 0xFFF);
+        }
         print_value("temp", (float)(val / 10.0));
       }
       break;

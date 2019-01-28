@@ -589,6 +589,9 @@ void printIt(uint32_t tim, byte *packet, char rxTx, byte channel, uint32_t packe
         Serial.print('-');
       } else {
         val = (int)packet[3] << 4 | packet[4] >> 4;
+        if (packet[3] & 0x80 != 0) {
+          val = -(val ^ 0xFFF);
+        }
         Serial.print((float)(val / 10.0), 1);
         Serial.print(" (");
         Serial.print((float)(((val / 10.0) - 32) * (5.0 / 9.0)), 1);
