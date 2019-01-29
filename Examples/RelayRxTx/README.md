@@ -30,7 +30,7 @@ The sketch implements a number of serial commands to configure some aspects of b
 **fnnnnnnnn**
 
     (where each n = 0 or 1) - Switches output from a particular transmitter id 1-8 off or on
-    You can send only the ids up to last one you want to set, eg: only turn transmitter 3 off = f110
+    You only need to send the ids up to last one you want to set, eg: only turn transmitter 3 off = f110
 
 **qnnnnn**
 
