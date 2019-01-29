@@ -1,5 +1,4 @@
-RelayRxTx.ino
---------------
+# RelayRxTx.ino
 
 This sketch is a relay device for Davis VP2 transmitters
 
@@ -16,27 +15,33 @@ the rain/temperature/humidity from the ISS (id=2), and retransmits the data as i
 
 The sketch implements a number of serial commands to configure some aspects of behaviour:
 
-  tn.nnnnn
+**tn.nnnnn**
+
     (where 1.2 < n.nn > 0.8) - Sets the timer adjustment factor to compenstate for clock differences
 
-  on
+**on**
+
     (where n = 0, 1, 2, 3) - Switches serial data output
     0 = off
     1 = full stats + data
     2 = full data only
     3 = wind data only (speed,direction)
 
-  fnnnnnnnn
+**fnnnnnnnn**
+
     (where each n = 0 or 1) - Switches output from a particular transmitter id 1-8 off or on
     You can send only the ids up to last one you want to set, eg: only turn transmitter 3 off = f110
 
-  qnnnnn
+**qnnnnn**
+
     (where -1000 < nnn < 1000) - Sets the RFM69 frequency offset
 
-  r
+**r**
+
     Shows the current radio stats for each transmitter id
 
-  ?
+**?**
+
     Shows the current configuration values
 
 The configuration values are stored to EEPROM so will survive a power cycle.
