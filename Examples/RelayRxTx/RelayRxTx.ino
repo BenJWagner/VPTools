@@ -63,7 +63,7 @@ struct StoreStruct {
 // unknown: c0-00-00-00-01-00
 // for an unconnected wind sensor wind speed and direction are both 0
 typedef struct __attribute__((packed)) Payload {
-  byte wind[3];
+  byte wind[6];
   byte uv[6];
   byte rainsecs[6];
   byte solar[6];
@@ -117,8 +117,8 @@ uint32_t ledTimer;      // last time LED was switched on
 
 // initialise the sensor payloads with 'sensor not connected' data
 Payload payloads = {
-//{0x03, 0xA8, 0x03},                    // dummy test wind data
-  {0, 0, 0},                             // wind
+//{0x03, 0xA8, 0x03, 0x00, 0x00, 0x00},  // dummy test wind data
+  {0x00, 0x00, 0x00, 0x00, 0x02, 0x00},  // wind
   {0x40, 0x00, 0x00, 0xff, 0xc5, 0x00},  // uv
   {0x50, 0x00, 0x00, 0xff, 0x71, 0x00},  // rainsecs
   {0x60, 0x00, 0x00, 0xff, 0xc5, 0x00},  // solar
@@ -129,13 +129,14 @@ Payload payloads = {
 };
 
 // station id associated with each payload
-PayloadStation payloadStations = {
-  255, 255, 255, 255, 255, 255   // wind, uv, rain, solar, temp, hum
+// Zero relative = Davis ID -1
+static PayloadStation payloadStations = {
+  0, 0, 1, 0, 1, 1   // wind, uv, rain, solar, temp, hum
 };
 
 // Stations to receive from
 // id, type, active
-Station stations[NUM_RX_STATIONS] = {
+static Station stations[NUM_RX_STATIONS] = {
   {0, STYPE_ISS, true},   // Anemometer txmr in my case
   {1, STYPE_ISS, true}    // The 'real' ISS
 };
@@ -225,10 +226,10 @@ void decode_packet(RadioData* rd) {
     }
 
     // save wind data from every packet type - if valid
-    if ((packet[2] | (packet[4] & 2)) != 0 || id == payloadStations.wind) {
+    if ((packet[2] | (packet[4] & 2)) != 0) {
       payloads.wind[0] = packet[1];
       payloads.wind[1] = packet[2];
-      payloads.wind[2] = packet[4];
+      payloads.wind[3] = packet[4] & 0x7; // lower 3 bits
       if (id != payloadStations.wind) {
         payloadStations.wind = id;
       }
@@ -241,79 +242,79 @@ void decode_packet(RadioData* rd) {
     switch (packet[0] >> 4) {
       case VP2P_UV:
         val = word(packet[3], packet[4]) >> 6;
-        if (val < 0x3ff || id == payloadStations.uv) {
+        if (id == payloadStations.uv && val < 0x3ff) {
           copyData = true;
           ptr = payloads.uv;
-          if (id != payloadStations.uv) {
-            payloadStations.uv = id;
-          }
+          //if (id != payloadStations.uv) {
+          //  payloadStations.uv = id;
+          //}
        }
        break;
 
       case VP2P_SOLAR:
         val = word(packet[3], packet[4]) >> 6;
-        if (val < 0x3fe || id == payloadStations.solar) {
+        if (id == payloadStations.solar && val < 0x3fe) {
           copyData = true;
           ptr = payloads.solar;
-          if (id != payloadStations.solar) {
-            payloadStations.solar = id;
-          }
+          //if (id != payloadStations.solar) {
+          //  payloadStations.solar = id;
+          //}
         }
         break;
 
       case VP2P_RAIN:
-        if (packet[3] != 0x80 || id == payloadStations.rain) {
+        if (id == payloadStations.rain && packet[3] != 0x80) {
           copyData = true;
           ptr = payloads.rain;
-          if (id != payloadStations.rain) {
-            payloadStations.rain = id;
-          }
+          //if (id != payloadStations.rain) {
+          //  payloadStations.rain = id;
+          //}
         }
         break;
 
       case VP2P_RAINSECS:
         // PROBLEM - We need to store the data from the station when it resets to the 'not connected' value if it isn't raining,
         //         - but NOT from any other stations that may be reporting 'not connected' because they aren't rain stations!
-        val = (packet[4] & 0x30) << 4 | packet[3];
+        val = ((packet[4] & 0x30) << 4) | packet[3];
         // is the packet from the station that previuously reported rain, OR do we have some rain data
-        if (val != 0x3ff || id == payloadStations.rain) {
+        if (id == payloadStations.rain && val != 0x3ff) {
           // we have some rain data
           copyData = true;
           ptr = payloads.rainsecs;
-          if (id != payloadStations.rain) {
-            payloadStations.rain = id;
-          }
+          //if (id != payloadStations.rain) {
+          //  payloadStations.rain = id;
+          //}
         }
         break;
 
       case VP2P_TEMP:
-        if (packet[3] != 0xff || id == payloadStations.temp) {
+        if (id == payloadStations.temp && packet[3] != 0xff) {
           copyData = true;
           ptr = payloads.temp;
-          if (id != payloadStations.temp) {
-            payloadStations.temp = id;
-          }
+          //if (id != payloadStations.temp) {
+          //  payloadStations.temp = id;
+          //}
         }
         break;
 
       case VP2P_HUMIDITY:
-        val = ((packet[4] >> 4) << 8 | packet[3]) / 10; // 0 -> no sensor
-        if (val > 0 || id == payloadStations.hum) {
+        val = ((packet[4] >> 4) << 8) | packet[3]; // 0 -> no sensor
+        if (id == payloadStations.hum && val > 0) {
           copyData = true;
           ptr = payloads.hum;
-          if (id != payloadStations.hum) {
-            payloadStations.hum = id;
-          }
+          //if (id != payloadStations.hum) {
+          //  payloadStations.hum = id;
+          //}
         }
         break;
 
       case VP2P_WINDGUST:
-        if (packet[2] > 0 || id == payloadStations.wind) {  // 0 -> no sensor
+        if (id == payloadStations.wind && packet[2] > 0) {  // 0 -> no sensor
           copyData = true;
           ptr = payloads.windgust;
-          if (id != payloadStations.wind) {
-            payloadStations.wind = id;
-          }
+          //if (id != payloadStations.wind) {
+          //  payloadStations.wind = id;
+          //}
         }
         break;
 
@@ -392,12 +393,8 @@ void sendNextPacket() {
   ptr[1] = payloads.wind[0];
   ptr[2] = payloads.wind[1];
 //  ptr[4] = (ptr[4] & 0xfe) | (payloads.wind[2] & 0x1);
-  ptr[4] = (ptr[4] & 0xfc) | (payloads.wind[2] & 0x3);
-
-  // clear the flag if wind data valid
-  if (ptr[2] != 0) {
-    bitClear(ptr[4], 2);
-  }
+//  ptr[4] = (ptr[4] & 0xfc) | (payloads.wind[2] & 0x3);
+ptr[4] = (ptr[4] & 0xf8) | payloads.wind[3];  // lower 3 bits
 
   // Send packet
   radio.send(ptr, channel);
@@ -449,7 +446,7 @@ void printIt(uint32_t tim, byte *packet, char rxTx, byte channel, uint32_t packe
         val = (packet[2] << 1) | (packet[4] & 2) >> 1;
         val = round(val * 360 / 512);
       } else {
-        val = 9 + round((packet[2] - 1) * 342.0 / 255.0);
+        val = round((float)packet[2] * 359.0 / 255.0);
       }
       Serial.print(packet[1]);
       Serial.print(',');
@@ -520,12 +517,13 @@ void printIt(uint32_t tim, byte *packet, char rxTx, byte channel, uint32_t packe
 
     // wind data is present in every packet, windd == 0
     // (packet[2] == 0) means there's no anemometer??? No, get packet[2]=0 when direction from the North!
-    if ((packet[2] | (packet[4] & 2) != 0))  {
+//    if ((packet[2] | (packet[4] & 2) != 0))  {  // This isn't reliable either
+    if ((packet[2] > 0 || (packet[4] & 2) != 0))  {
       if (stations[stIx].type == STYPE_VUE) {
         val = (packet[2] << 1) | (packet[4] & 2) >> 1;
         val = round(val * 360 / 512);
       } else {
-        val = 9 + round((packet[2] - 1) * 342.0 / 255.0);
+        val = round((float)packet[2] * 359.0 / 255.0);
       }
       Serial.print(packet[1]);
       Serial.print('\t');
@@ -588,11 +586,11 @@ void printIt(uint32_t tim, byte *packet, char rxTx, byte channel, uint32_t packe
       if (packet[3] == 0xff) {
         Serial.print('-');
       } else {
-        val = (int)packet[3] << 4 | packet[4] >> 4;
-        if (packet[3] & 0x80 != 0) {
+        val = packet[3] << 4 | packet[4] >> 4;
+        if ((packet[3] & 0x80) != 0) {
           val = -(val ^ 0xFFF);
         }
-        Serial.print((float)(val / 10.0), 1);
+        Serial.print((float)val / 10.0, 1);
         Serial.print(" (");
         Serial.print((float)(((val / 10.0) - 32) * (5.0 / 9.0)), 1);
         Serial.print(')');
@@ -601,11 +599,11 @@ void printIt(uint32_t tim, byte *packet, char rxTx, byte channel, uint32_t packe
 
     case VP2P_HUMIDITY:
       Serial.print("hum\t");
-      val = ((packet[4] >> 4) << 8 | packet[3]) / 10; // 0 -> no sensor
+      val = ((packet[4] >> 4) << 8) | packet[3]; // 0 -> no sensor
       if (val == 0) {
         Serial.print('-');
       } else {
-        Serial.print(val + 1);
+        Serial.print((float)val / 10.0, 1);
       }
       break;
 

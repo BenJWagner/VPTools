@@ -95,7 +95,7 @@ void decode_packet(RadioData* rd) {
       val = (packet[2] << 1) | (packet[4] & 2) >> 1;
       val = round(val * 360 / 512);
     } else {
-      val = 9 + round((packet[2] - 1) * 342.0 / 255.0);
+      val = round((packet[2]) * 359.0 / 255.0);
     }
   } else {
     val = 0;
@@ -149,7 +149,7 @@ void decode_packet(RadioData* rd) {
         print_value("temp", -100);
       } else {
         val = (int)packet[3] << 4 | packet[4] >> 4;
-        if (packet[3] & 0x80 != 0) {
+        if ((packet[3] & 0x80) != 0) {
           val = -(val ^ 0xFFF);
         }
         print_value("temp", (float)(val / 10.0));
