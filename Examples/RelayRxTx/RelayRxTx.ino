@@ -1,5 +1,5 @@
 //
-// Mark Crossley 2017
+// Mark Crossley 2017/18/19
 //
 
 #include <Arduino.h>
@@ -61,7 +61,7 @@ struct StoreStruct {
 // rh:      a0-00-00-00-05-00
 // rain:    e0-00-00-80-03-00
 // unknown: c0-00-00-00-01-00
-// for an unconnected wind sensor wind speed and direction are both 0
+// for an unconnected wind sensor wind speed and direction are both 0 - DOES NOT WORK
 typedef struct __attribute__((packed)) Payload {
   byte wind[6];
   byte uv[6];
@@ -118,14 +118,14 @@ uint32_t ledTimer;      // last time LED was switched on
 // initialise the sensor payloads with 'sensor not connected' data
 Payload payloads = {
 //{0x03, 0xA8, 0x03, 0x00, 0x00, 0x00},  // dummy test wind data
-  {0x00, 0x00, 0x00, 0x00, 0x02, 0x00},  // wind
+  {0x00, 0x00, 0x00, 0x00, 0x04, 0x00},  // wind
   {0x40, 0x00, 0x00, 0xff, 0xc5, 0x00},  // uv
   {0x50, 0x00, 0x00, 0xff, 0x71, 0x00},  // rainsecs
-  {0x60, 0x00, 0x00, 0xff, 0xc5, 0x00},  // solar
+  {0x60, 0x00, 0x00, 0xff, 0xc1, 0x00},  // solar
   {0x80, 0x00, 0x00, 0xff, 0xc5, 0x00},  // temp
   {0x90, 0x00, 0x00, 0x00, 0x05, 0x00},  // gust
-  {0xa0, 0x00, 0x00, 0x00, 0x05, 0x00},  // humidity
-  {0xe0, 0x00, 0x00, 0x80, 0x03, 0x00}   // rain
+  {0xa0, 0x00, 0x00, 0x00, 0x01, 0x00},  // humidity
+  {0xe0, 0x00, 0x00, 0x80, 0x01, 0x00}   // rain
 };
 
 // station id associated with each payload
@@ -225,96 +225,74 @@ void decode_packet(RadioData* rd) {
       ledOnOff(true);
     }
 
-    // save wind data from every packet type - if valid
-    if ((packet[2] | (packet[4] & 2)) != 0) {
+    // save wind data from every packet type - if from the right id
+    if (id == payloadStations.wind) {
+    //if ((packet[2] | (packet[4] & 2)) != 0) {
       payloads.wind[0] = packet[1];
       payloads.wind[1] = packet[2];
-      payloads.wind[3] = packet[4] & 0x7; // lower 3 bits
-      if (id != payloadStations.wind) {
-        payloadStations.wind = id;
-      }
+      payloads.wind[3] = packet[4] & 0x6; // bits 2,1
+      //payloads.wind[3] = packet[4] & 0x4; // bits 2
     }
 
     // save battery status
     battery[id] = packet[0] & 8;
 
-
     switch (packet[0] >> 4) {
       case VP2P_UV:
-        val = word(packet[3], packet[4]) >> 6;
-        if (id == payloadStations.uv && val < 0x3ff) {
+        if (id == payloadStations.uv) {
+          packet[4] &= 0xf9; // bits 7,6,5,4,3,0
           copyData = true;
           ptr = payloads.uv;
-          //if (id != payloadStations.uv) {
-          //  payloadStations.uv = id;
-          //}
        }
        break;
 
       case VP2P_SOLAR:
-        val = word(packet[3], packet[4]) >> 6;
-        if (id == payloadStations.solar && val < 0x3fe) {
+        if (id == payloadStations.solar) {
+          packet[4] &= 0xf9; // bits 7,6,5,4,3,0
           copyData = true;
           ptr = payloads.solar;
-          //if (id != payloadStations.solar) {
-          //  payloadStations.solar = id;
-          //}
         }
         break;
 
       case VP2P_RAIN:
-        if (id == payloadStations.rain && packet[3] != 0x80) {
+        if (id == payloadStations.rain) {
+          packet[4] &= 0xf9; // bits 7,6,5,4,3,0
           copyData = true;
           ptr = payloads.rain;
-          //if (id != payloadStations.rain) {
-          //  payloadStations.rain = id;
-          //}
         }
         break;
 
       case VP2P_RAINSECS:
         // PROBLEM - We need to store the data from the station when it resets to the 'not connected' value if it isn't raining,
         //         - but NOT from any other stations that may be reporting 'not connected' because they aren't rain stations!
-        val = ((packet[4] & 0x30) << 4) | packet[3];
-        // is the packet from the station that previuously reported rain, OR do we have some rain data
-        if (id == payloadStations.rain && val != 0x3ff) {
-          // we have some rain data
+        if (id == payloadStations.rain) {
+          packet[4] &= 0xf9; // bits 7,6,5,4,3,0
           copyData = true;
           ptr = payloads.rainsecs;
-          //if (id != payloadStations.rain) {
-          //  payloadStations.rain = id;
-          //}
         }
         break;
 
       case VP2P_TEMP:
-        if (id == payloadStations.temp && packet[3] != 0xff) {
+        if (id == payloadStations.temp) {
+          packet[4] &= 0xf9; // bits 7,6,5,4,3,0
           copyData = true;
           ptr = payloads.temp;
-          //if (id != payloadStations.temp) {
-          //  payloadStations.temp = id;
-          //}
         }
         break;
 
       case VP2P_HUMIDITY:
-        val = ((packet[4] >> 4) << 8) | packet[3]; // 0 -> no sensor
-        if (id == payloadStations.hum && val > 0) {
+        if (id == payloadStations.hum) {
+          packet[4] &= 0xf9; // bits 7,6,5,4,3,0
           copyData = true;
           ptr = payloads.hum;
-          //if (id != payloadStations.hum) {
-          //  payloadStations.hum = id;
-          //}
         }
         break;
 
       case VP2P_WINDGUST:
-        if (id == payloadStations.wind && packet[2] > 0) {  // 0 -> no sensor
+        if (id == payloadStations.wind) {
+          packet[4] &= 0xf9; // bits 7,6,5,4,3,0
           copyData = true;
           ptr = payloads.windgust;
-          //if (id != payloadStations.wind) {
-          //  payloadStations.wind = id;
-          //}
         }
         break;
 
@@ -392,9 +370,10 @@ void sendNextPacket() {
   // Add in the latest wind data
   ptr[1] = payloads.wind[0];
   ptr[2] = payloads.wind[1];
-//  ptr[4] = (ptr[4] & 0xfe) | (payloads.wind[2] & 0x1);
-//  ptr[4] = (ptr[4] & 0xfc) | (payloads.wind[2] & 0x3);
-ptr[4] = (ptr[4] & 0xf8) | payloads.wind[3];  // lower 3 bits
+  //ptr[4] = (ptr[4] & 0xf8) | payloads.wind[3];  // lower 3 bits
+  //ptr[4] = (ptr[4] & 0xfd) | payloads.wind[3];  // bit 1
+  ptr[4] = (ptr[4] & 0xf9) | payloads.wind[3];  // bits 2,1
+  //ptr[4] = (ptr[4] & 0xfb) | payloads.wind[3];  // bit 2
 
   // Send packet
   radio.send(ptr, channel);
@@ -454,6 +433,13 @@ void printIt(uint32_t tim, byte *packet, char rxTx, byte channel, uint32_t packe
     }
     return;
   }
+
+  if (storage.output == 4) {
+    printHex(packet, 10);
+    Serial.print("\n");
+    return;
+  }
+
 
   if (storage.output == 1) {
     Serial.print(tim);
@@ -517,7 +503,7 @@ void printIt(uint32_t tim, byte *packet, char rxTx, byte channel, uint32_t packe
 
     // wind data is present in every packet, windd == 0
     // (packet[2] == 0) means there's no anemometer??? No, get packet[2]=0 when direction from the North!
-//    if ((packet[2] | (packet[4] & 2) != 0))  {  // This isn't reliable either
+    //if ((packet[2] | (packet[4] & 2) != 0))  {  // This isn't reliable either
     if ((packet[2] > 0 || (packet[4] & 2) != 0))  {
       if (stations[stIx].type == STYPE_VUE) {
         val = (packet[2] << 1) | (packet[4] & 2) >> 1;
@@ -613,10 +599,10 @@ void printIt(uint32_t tim, byte *packet, char rxTx, byte channel, uint32_t packe
         Serial.print('-');
       } else {
         Serial.print(packet[3]);
-        if (packet[3] != 0) {
+        //if (packet[3] != 0) {
           Serial.print("\tgustref:");
           Serial.print(packet[5] & 0xf0 >> 4);
-        }
+        //}
       }
       break;
 
@@ -656,7 +642,7 @@ void printIt(uint32_t tim, byte *packet, char rxTx, byte channel, uint32_t packe
       Serial.print("unknown");
   }
 
-  Serial.println();
+  Serial.print("\n");
 
 }
 
@@ -681,7 +667,7 @@ void printStatus(bool st, char *info = NULL) {
     Serial.print(' ');
     Serial.print(info);
   }
-  Serial.println();
+  Serial.print("\n");
 }
 
 void printStatusF(bool st, const __FlashStringHelper *info = NULL) {
@@ -690,7 +676,7 @@ void printStatusF(bool st, const __FlashStringHelper *info = NULL) {
     Serial.print(' ');
     Serial.print(info);
   }
-  Serial.println();
+  Serial.print("\n");
 }
 
 
@@ -740,7 +726,7 @@ void processSerial() {
       } else {
         s[0] = 0;
         i = 0;
-        Serial.println();
+        Serial.print("\n");
         printStatusF(S_ERR, F("bad command"));
       }
     }
@@ -760,7 +746,7 @@ void cmdShowValues() {
   }
   Serial.print(F(" q"));
   Serial.print(storage.frequency);
-  Serial.println();
+  Serial.print("\n");
 }
 
 
@@ -793,6 +779,9 @@ void cmdOutput(char *s) {
   } else if (s[0] == '3') {
     storage.output = 3;
     printStatusF(S_OK, F("output wind data only"));
+  } else if (s[0] == '4') {
+    storage.output = 4;
+    printStatusF(S_OK, F("output radio packets only"));
   } else {
     printStatusF(S_ERR, F("unimplemented"));
     return;
@@ -813,12 +802,12 @@ void cmdFilter(char *s) {
         storage.filter[i] = s[i];
         Serial.print(s[i]);
       } else {
-        Serial.println();
+        Serial.print("\n");
         printStatusF(S_ERR, F("not 0 or 1"));
         break;
       }
     }
-    Serial.println();
+    Serial.print("\n");
     saveConfig();
   }
 }
@@ -890,4 +879,3 @@ void saveConfig() {
     EEPROM.write(CONFIG_START + t, *((char*)&storage + t));
   }
 }
-

@@ -26,6 +26,7 @@ The sketch implements a number of serial commands to configure some aspects of b
     1 = full stats + data
     2 = full data only
     3 = wind data only (speed,direction)
+    4 = radio packets only
 
 **fnnnnnnnn**
 
