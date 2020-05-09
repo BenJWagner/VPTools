@@ -1,5 +1,5 @@
 //
-// Mark Crossley 2017/18/19
+// Mark Crossley 2017/18/19/20
 //
 
 #include <Arduino.h>
@@ -18,7 +18,7 @@
 
 #define SERIAL_BAUD 115200
 
-#define TX_ID 2 // 0..7, Davis transmitter ID, set to a different value than all other transmitters
+#define TX_ID 3 // 0..7, Davis transmitter ID, set to a different value than all other transmitters
                 // IMPORTANT: set it ONE LESS than you'd set it on the ISS via the DIP switch; 1 here is 2 on the ISS/Davis console
 
 #define NUM_RX_STATIONS 2   // Number of stations we are going to listen for
@@ -131,7 +131,7 @@ Payload payloads = {
 // station id associated with each payload
 // Zero relative = Davis ID -1
 static PayloadStation payloadStations = {
-  0, 0, 1, 0, 1, 1   // wind, uv, rain, solar, temp, hum
+  1, 1, 1, 0, 1, 1   // wind, uv, rain, solar, temp, hum
 };
 
 // Stations to receive from
@@ -150,7 +150,7 @@ void setup() {
   loadConfig();
 
   radio.setStations(stations, NUM_RX_STATIONS);
-  radio.initialize(FREQ_BAND_US);
+  radio.initialize(FREQ_BAND_EU);  // FREQ_BAND_US|AU|EU|NZ
   radio.setBandwidth(RF69_DAVIS_BW_NARROW);
   radio.setTimerCalibation(storage.timer);
   radio.setFrequencyCalibation(storage.frequency);
@@ -332,10 +332,6 @@ void sendNextPacket() {
   // turn off receiver to prevent reception while we prepare to transmit
   radio.setMode(RF69_MODE_STANDBY);
 
-  if (TX_LED) {
-    ledOnOff(true);
-  }
-
   switch (txseq[seqIndex]) {
     case VP2P_UV:
       ptr = payloads.uv;
@@ -383,6 +379,10 @@ void sendNextPacket() {
 
   // re-enable interrrupts
   interrupts();
+
+  if (TX_LED) {
+    ledOnOff(true);
+  }
 
   // dump it to the fifo queue for printing
   radio.fifo.queue(now, (byte*)radio.DATA, channel, 0, 0, now - lastTx);

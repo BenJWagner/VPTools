@@ -177,7 +177,7 @@ void DavisRFM69::handleTimerInt() {
   // that is, find missed packets
   for (byte i = 0; i < numStations; i++) {
     if (stations[i].interval > 0 && (lastRx - stations[i].lastRx) > stations[i].interval + LATE_PACKET_THRESH) {
-      #if (stations[curStation].active) lostPackets++;
+      if (stations[curStation].active) lostPackets++;
       stations[i].lostPackets++;
       stations[i].missedPackets++;
       if (stations[i].lostPackets > RESYNC_THRESHOLD) {
