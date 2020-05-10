@@ -17,7 +17,7 @@
 
 #define SERIAL_BAUD 115200
 
-#define TX_ID 3 // 0..7, Davis transmitter ID, set to a different value than all other transmitters
+#define TX_ID 2 // 0..7, Davis transmitter ID, set to a different value than all other transmitters
                 // IMPORTANT: set it ONE LESS than you'd set it on the ISS via the DIP switch; 1 here is 2 on the ISS/Davis console
 
 #define NUM_RX_STATIONS 2   // Number of stations we are going to listen for
