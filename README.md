@@ -1,6 +1,8 @@
 # RelayRxTx.ino
 
-This sketch is a relay device for Davis VP2 transmitters. This repository has been optimised for the RelayRxTX sketch, I do not recommend using for the other sketches.
+This sketch is a relay device for Davis VP2 transmitters.
+This repository has been optimised for the RelayRxTx sketch, I do not recommend using for the other sketches.
+The RelayRxTx example folder contains a customised version of the DavisRFM69 module and an updated TimerOne module, use these rather than the versions in the main repo.
 
 It receives the transmissions from two or more Davis VP2 transmitters, and rebroadcasts the data as if all the sensors were connected to a single ISS.
 Obviously it can only be used with the array of sensor types that can legitimately be connected to an ISS:

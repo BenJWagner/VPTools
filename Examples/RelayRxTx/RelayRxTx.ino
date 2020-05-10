@@ -11,7 +11,6 @@
 
 #include "DavisRFM69.h"
 #include "PacketFifo.h"
-#include "MsTimer2.h"
 
 #define LED 9                // Moteino has LED on pin 9
 #define LED_INTERVAL 1000L   // LED flash duration micros
@@ -104,8 +103,7 @@ DavisRFM69 radio;
 // starts at 2.5625 and increments by 0.625 up to 3.0 for every increment in TX_ID
 // DAVIS_INTV_CORR is defined in DavisRFM69.h
 
-uint32_t txPeriod;
-uint32_t lastTx;
+
 uint32_t txPackets = 0;
 byte     seqIndex;      // current packet type index into txseq array
 byte     channel;       // next transmission channel
@@ -166,7 +164,7 @@ void setup() {
 
 
 
-  txPeriod = (long)((41 + TX_ID) * 1000.0 * storage.timer / 16.0);
+  DavisRFM69::txPeriod = (uint32_t)((41 + TX_ID) * 1000.0 * storage.timer / 16.0 * 1000); // usec
   seqIndex = 0;
   channel = 0;
   ledOn = false;
@@ -175,11 +173,6 @@ void setup() {
   for (byte i=0; i < NUM_RX_STATIONS; i++) {
     battery[i] = 0;
   }
-
-  MsTimer2::set(txPeriod, sendNextPacket);
-  MsTimer2::start();
-
-  lastTx = micros();
 
   Serial.println("Setup done.");
   // print a header for the serial data log
@@ -322,12 +315,8 @@ void printHex(volatile byte* packet, byte len) {
 }
 
 
-void sendNextPacket() {
+void sendNextPacket(uint32_t sent) {
   byte *ptr;
-  uint32_t now, delta;
-
-  // disable interrrupts so receiving packets does not distrupt the transmission.
-  noInterrupts();
 
   // turn off receiver to prevent reception while we prepare to transmit
   radio.setMode(RF69_MODE_STANDBY);
@@ -374,21 +363,12 @@ void sendNextPacket() {
   // Send packet
   radio.send(ptr, channel);
 
-  // Get current time
-  now = micros();
-
-  // re-enable interrrupts
-  interrupts();
-
   if (TX_LED) {
     ledOnOff(true);
   }
 
   // dump it to the fifo queue for printing
-  radio.fifo.queue(now, (byte*)radio.DATA, channel, 0, 0, now - lastTx);
-
-  // record the last txmt time
-  lastTx = now;
+  radio.fifo.queue(sent, (byte*)radio.DATA, channel, 0, 0, sent - DavisRFM69::lastTx);
 
   // move things on for the next transmission...
   channel = radio.nextChannel(channel);
@@ -756,8 +736,7 @@ void cmdTimer(char *s) {
     printStatusF(S_ERR, F("out of range"));
     return;
   }
-  txPeriod = (long)((41 + TX_ID) * 1000.0 / 16.0 * t);
-  MsTimer2::setTimeout(txPeriod);
+  DavisRFM69::txPeriod = (long)((41 + TX_ID) * 1000.0 / 16.0 * t * 1000);  // usec
   radio.setTimerCalibation(t);
   storage.timer = t;
   saveConfig();
@@ -848,11 +827,11 @@ void cmdShowRadio() {
   // and the transmitter
     Serial.print(TX_ID);
     Serial.print('\t');
-    Serial.print(lastTx);
+    Serial.print(DavisRFM69::lastTx);
     Serial.print('\t');
     Serial.print("---");
     Serial.print('\t');
-    Serial.print(txPeriod * 1000); // convert ms to micros for compatibility with rx ids
+    Serial.print(DavisRFM69::txPeriod);
     Serial.print("\t---\t");
     Serial.print(txPackets);
     Serial.println("\t---\t---");
