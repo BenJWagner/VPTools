@@ -129,7 +129,7 @@ Payload payloads = {
 // station id associated with each payload
 // Zero relative = Davis ID -1
 static PayloadStation payloadStations = {
-  1, 1, 1, 0, 1, 1   // wind, uv, rain, solar, temp, hum
+  0, 1, 1, 0, 1, 1   // wind, uv, rain, solar, temp, hum
 };
 
 // Stations to receive from
