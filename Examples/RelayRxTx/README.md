@@ -46,36 +46,27 @@ That should be enough to get you going, if your board does not have an LEDs then
 
 The sketch implements a number of serial commands to configure some aspects of behaviour:
 
-- tn.nnnnn
-
+- tn.nnnnn<br>
     (where 1.2 < n.nn < 0.8) - Sets the timer adjustment factor to compensate for clock differences
-- on
-
-    (where n = 0, 1, 2, 3) - Switches serial data output
-
-    ```
-    0 = off
-    1 = full stats + data
-    2 = full data only
-    3 = wind data only (speed,direction)
+- on<br>
+    (where n = 0, 1, 2, 3) - Switches serial data output<br>
+    0 = off<br>
+    1 = full stats + data<br>
+    2 = full data only<br>
+    3 = wind data only (speed,direction)<br>
     4 = radio packets only
-    ```
-- fnnnnnnnn
 
-    (where each n = 0 or 1) - Switches logging output from a particular transmitter id 1-8 off or on.
-
+- fnnnnnnnn<br>
+    (where each n = 0 or 1) - Switches logging output from a particular transmitter id 1-8 off or on.<br>
     You can send only the ids up to last one you want to set, eg: only turn transmitter 3 off = f110
 
-- r
-
+- r<br>
     Shows the current radio stats for each transmitter id
 
-- qnnnn
-
+- qnnnn<br>
     (where -1000 < nnn < 1000) Sets the frequency offset
 
-- ?
-
+- ?<br>
     Shows the current configuration values
 
 The configuration values are stored to EEPROM so will survive a power cycle.
@@ -95,12 +86,12 @@ The sketch requires either a Moteino or any similar Arduino-compatible device eq
   1=64, 2=128, 3=192, 4=0, (untested values: 5=64, 6=128, 7=192, 8=0)
   ````
 
-  For example you have the following values shown for transmitter 1: 202, 10, 74, 138...
-  MOD(10 - 202, 265) = 64
-  74 - 10 = 64
-  138 - 74 = 64
+  For example you have the following values shown for transmitter 1: 202, 10, 74, 138...<br>
+  MOD(10 - 202, 265) = 64<br>
+  74 - 10 = 64<br>
+  138 - 74 = 64<br>
   .. etc
 
-  Adjust the timing using the "tn.nnnn" command so that your intervals are as close to the value above as you can get. You will probably only want to adjust by 0.1% at a time at most, so start with something like t0.999 or t1.001
+  Adjust the timing using the "tn.nnnn" command so that your intervals are as close to the value above as you can get. You will probably only want to adjust by 0.01% at a time at most, so start with something like t0.999 or t1.001
 
 Mark Crossley 2020
