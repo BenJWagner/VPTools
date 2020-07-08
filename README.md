@@ -92,8 +92,13 @@ The sketch requires either a Moteino or any similar Arduino-compatible device eq
 * Check the timing, field 1 on the VP2 console shows the last eight bits of the interval timer. The sequential jumps for each transmitter number should be approximately...
 
   ````
-  1=192, 2=128, 3=64, 4=1, (untested values: 5=60, 6=132, 7=71, 8=8)
+  1=64, 2=128, 3=192, 4=0, (untested values: 5=64, 6=128, 7=192, 8=0)
   ````
+  For example you have the following values shown for transmitter 1: 202, 10, 74, 138...
+  MOD(10 - 202, 265) = 64
+  74 - 10 = 64
+  138 - 74 = 64
+  .. etc
 
   Adjust the timing using the "tn.nnnn" command so that your intervals are as close to the value above as you can get. You will probably only want to adjust by 1% at a time at most, so start with something like t0.999 or t1.001
 
